@@ -22,6 +22,14 @@ func SetupRoutes(engine *gin.Engine, tokenProvider auth.TokenProvider) {
 		authGroup.POST("/", Login(tokenProvider))
 	}
 
+	logsGroup := v1.Group("/logs")
+	logsGroup.Use(middleware.TokenAuthMiddleware(tokenProvider))
+	{
+		// TODO: perhaps logs should be specific to Capp
+		logsGroup.GET("/logs/pod/:namespace/:name", GetPodLogs())
+		logsGroup.GET("/knative/:namespace/:name", GetKnativeServiceLogs())
+	}
+
 	namespacesGroup := v1.Group("/namespaces")
 	namespacesGroup.Use(middleware.TokenAuthMiddleware(tokenProvider))
 	{
