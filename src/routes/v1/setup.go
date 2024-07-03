@@ -22,6 +22,13 @@ func SetupRoutes(engine *gin.Engine, tokenProvider auth.TokenProvider) {
 		authGroup.POST("/", Login(tokenProvider))
 	}
 
+	logsGroup := v1.Group("/logs")
+	logsGroup.Use(middleware.TokenAuthMiddleware(tokenProvider))
+	{
+		logsGroup.GET("/pod/:namespace/:name", GetPodLogs())  // containerName
+		logsGroup.GET("/capp/:namespace/:name", GetCappLogs())
+	}
+
 	namespacesGroup := v1.Group("/namespaces")
 	namespacesGroup.Use(middleware.TokenAuthMiddleware(tokenProvider))
 	{
