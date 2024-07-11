@@ -21,7 +21,7 @@ func main() {
 
 	tokenProvider := auth.DefaultTokenProvider{}
 	engine := initializeRouter(logger, tokenProvider)
-	if err := engine.Run(); err != nil {
+	if err := engine.Run("0.0.0.0:8080"); err != nil {
 		panic(err.Error())
 	}
 }

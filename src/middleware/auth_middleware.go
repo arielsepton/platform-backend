@@ -92,7 +92,7 @@ func TokenAuthMiddleware(tokenProvider auth.TokenProvider) gin.HandlerFunc {
 		c.Set("logger", userLogger)
 		c.Set("kubeClient", kubeClient)
 		c.Set("dynClient", dynClient)
-
+		c.Set("creds", token)
 		c.Next()
 	}
 }
@@ -101,7 +101,7 @@ func TokenAuthMiddleware(tokenProvider auth.TokenProvider) gin.HandlerFunc {
 func validateToken(c *gin.Context) (string, error) {
 	token := c.GetHeader(httpAuthorizationHeader)
 	if token == "" {
-		return "", fmt.Errorf("authorization token not provided")
+		return validateTokenFromWS(c)
 	}
 
 	tokenParts := strings.Split(token, " ")
@@ -112,6 +112,15 @@ func validateToken(c *gin.Context) (string, error) {
 	}
 
 	return tokenParts[httpBearerTokenIndex], nil
+}
+
+func validateTokenFromWS(c *gin.Context) (string, error) {
+	token := c.GetHeader("Sec-Websocket-Protocol")
+	if token == "" {
+		return "", fmt.Errorf("authorization token not provided")
+	}
+
+	return token, nil
 }
 
 // createKubernetesConfig creates a new Kubernetes client config using the provided token.

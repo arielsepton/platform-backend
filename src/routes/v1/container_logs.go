@@ -1,10 +1,15 @@
 package v1
 
 import (
+	"bufio"
+	"fmt"
 	"github.com/dana-team/platform-backend/src/controllers"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"net/http"
+	"time"
 )
 
 const (
@@ -35,7 +40,8 @@ func GetPodLogs() gin.HandlerFunc {
 		kubeClient := client.(kubernetes.Interface)
 		namespace := c.Param(namespaceQueryParam)
 		podName := c.Param(podNameQueryParam)
-		containerName := c.DefaultQuery(containerQueryParam, podName)
+		// check if empty string
+		containerName := c.Param(containerQueryParam)
 
 		logs, err := controllers.FetchPodLogs(c.Request.Context(), kubeClient, namespace, podName, containerName)
 		if err != nil {
@@ -71,5 +77,83 @@ func GetCappLogs() gin.HandlerFunc {
 		}
 
 		c.String(http.StatusOK, logs)
+	}
+}
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
+func LogsTests() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		upgrader.CheckOrigin = func(r *http.Request) bool { return true }
+
+		creds, exists := c.Get("creds")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Kubernetes client not found"})
+			return
+		}
+		h := http.Header{}
+		h.Set("Sec-Websocket-Protocol", creds.(string))
+
+		// client
+
+		kube, exists := c.Get("kubeClient")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Kubernetes client not found"})
+			return
+		}
+
+		client := kube.(kubernetes.Interface)
+
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, h)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+
+
+
+
+		PodLogsConnection := client.CoreV1().Pods("knative-serving-ingress").GetLogs("3scale-kourier-gateway-6b94f8b886-75wdp", &corev1.PodLogOptions{
+			Follow:    true,
+			TailLines: &[]int64{int64(10)}[0],
+		})
+		LogStream, _ := PodLogsConnection.Stream(c.Request.Context())
+		defer LogStream.Close()
+		defer conn.Close()
+
+		reader := bufio.NewScanner(LogStream)
+		var line string
+		for {
+			select {
+			case <-c.Done():
+				break
+			default:
+				for reader.Scan() {
+					message := fmt.Sprintf("Pod: %v line: %v\n", "3scale-kourier-gateway-6b94f8b886-75wdp", line)
+					conn.WriteMessage(websocket.TextMessage, []byte(message))
+					time.Sleep(time.Second)
+					line = reader.Text()
+				}
+			}
+		}
+		// socket
+		//conn, err := upgrader.Upgrade(c.Writer, c.Request, h)
+		//if err != nil {
+		//	c.JSON(500, gin.H{"error": err.Error()})
+		//	return
+		//}
+		//
+		//defer conn.Close()
+		//for {
+		//	conn.WriteMessage(websocket.TextMessage, []byte("Hello Websocket!"))
+		//
+		//	time.Sleep(time.Second)
+		//}
 	}
 }
