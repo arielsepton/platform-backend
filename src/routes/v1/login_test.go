@@ -3,12 +3,13 @@ package v1
 import (
 	"encoding/json"
 	"errors"
-	"github.com/dana-team/platform-backend/src/auth"
-	"github.com/dana-team/platform-backend/src/middleware"
-	"go.uber.org/zap"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/dana-team/platform-backend/src/auth"
+	"github.com/dana-team/platform-backend/src/middleware"
+	"go.uber.org/zap"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"

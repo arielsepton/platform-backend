@@ -1,10 +1,11 @@
 package v1
 
 import (
+	"net/http"
+
 	"github.com/dana-team/platform-backend/src/auth"
 	"github.com/dana-team/platform-backend/src/middleware"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 func SetupRoutes(engine *gin.Engine, tokenProvider auth.TokenProvider) {
@@ -24,9 +25,8 @@ func SetupRoutes(engine *gin.Engine, tokenProvider auth.TokenProvider) {
 	logsGroup := v1.Group("/logs")
 	logsGroup.Use(middleware.TokenAuthMiddleware(tokenProvider))
 	{
-		logsGroup.GET("/pod/:namespace/:podName", GetPodLogs())  // containerName
+		logsGroup.GET("/pod/:namespace/:podName", GetPodLogs()) // containerName
 		logsGroup.GET("/capp/:namespace/:name", GetCappLogs())
-		logsGroup.GET("", LogsTests())
 
 	}
 

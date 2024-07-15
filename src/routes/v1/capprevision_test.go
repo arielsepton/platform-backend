@@ -3,13 +3,14 @@ package v1_test
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/dana-team/platform-backend/src/types"
-	"github.com/dana-team/platform-backend/src/utils"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+
+	"github.com/dana-team/platform-backend/src/types"
+	"github.com/dana-team/platform-backend/src/utils"
+	"github.com/stretchr/testify/assert"
 )
 
 const (

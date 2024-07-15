@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )

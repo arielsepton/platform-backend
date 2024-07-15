@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+
 	"k8s.io/apimachinery/pkg/labels"
 
 	"github.com/dana-team/container-app-operator/api/v1alpha1"

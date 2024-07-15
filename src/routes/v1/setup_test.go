@@ -24,6 +24,7 @@ var (
 	router    *gin.Engine
 	client    *fake.Clientset
 	dynClient runtimeClient.WithWatch
+	token     string
 )
 
 const (
@@ -38,6 +39,9 @@ func TestMain(m *testing.M) {
 	setupCappRevisions()
 	createTestCapp()
 	createConfigMap()
+
+	createTestPod(testNamespace, "test-pod-1", false)
+	createTestPod(testNamespace, "test-pod-2", true)
 	m.Run()
 }
 
@@ -54,6 +58,7 @@ func setupRouter(logger *zap.Logger) *gin.Engine {
 		c.Set("logger", logger)
 		c.Set("kubeClient", client)
 		c.Set("dynClient", dynClient)
+		c.Set("token", token)
 		c.Next()
 	})
 	v1 := engine.Group("/v1")
@@ -96,6 +101,13 @@ func setupRouter(logger *zap.Logger) *gin.Engine {
 				usersGroup.GET("/:userName", routev1.GetUser())
 				usersGroup.PUT("/:userName", routev1.UpdateUser())
 				usersGroup.DELETE("/:userName", routev1.DeleteUser())
+			}
+
+			logsGroup := v1.Group("/logs")
+			{
+				logsGroup.GET("/pod/:namespace/:podName", routev1.GetPodLogs()) // containerName
+				logsGroup.GET("/capp/:namespace/:name", routev1.GetCappLogs())
+
 			}
 
 			configMapGroup := namespacesGroup.Group("/:namespaceName/configmaps")
@@ -183,6 +195,42 @@ func createRoleBinding(namespace string, userName string) {
 func createTestCappRevision(name, namespace string, labels, annotations map[string]string) {
 	cappRevision := utils.GetBareCappRevision(name, namespace, labels, annotations)
 	err := dynClient.Create(context.TODO(), &cappRevision)
+	if err != nil {
+		panic(err)
+	}
+}
+
+// createTestPod simulates creating a pod and adding some log lines.
+func createTestPod(namespace, podName string, isCappPod bool) {
+	labels := map[string]string{}
+
+	if isCappPod {
+		labels = map[string]string{
+			"rcs.dana.io/parent-capp": "test-capp",
+		}
+	}
+
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: namespace,
+			Labels:    labels,
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name:  "test-container",
+					Image: "nginx",
+				},
+				{
+					Name:  "test-capp",
+					Image: "nginx",
+				},
+			},
+		},
+	}
+
+	_, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
 	if err != nil {
 		panic(err)
 	}

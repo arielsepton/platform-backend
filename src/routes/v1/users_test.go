@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/dana-team/platform-backend/src/types"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/dana-team/platform-backend/src/types"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGetUser(t *testing.T) {
