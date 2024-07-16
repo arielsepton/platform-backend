@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+// Stream reads lines from the provided stream, formats each line using the given formatFunc,
+// and sends them as WebSocket messages to the client connection until the context is done.
 func Stream(c *gin.Context, conn *websocket.Conn, stream io.ReadCloser, formatFunc func(string) string) {
 	defer stream.Close()
 	defer conn.Close()
@@ -32,6 +34,7 @@ func Stream(c *gin.Context, conn *websocket.Conn, stream io.ReadCloser, formatFu
 	}
 }
 
+// SendErrorMessage sends an error message to the WebSocket client.
 func SendErrorMessage(conn *websocket.Conn, errorMsg string) {
 	message := "error: " + errorMsg
 	_ = conn.WriteMessage(websocket.TextMessage, []byte(message))

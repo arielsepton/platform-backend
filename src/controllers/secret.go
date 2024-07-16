@@ -4,18 +4,18 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-
 	"github.com/dana-team/platform-backend/src/types"
+	"github.com/dana-team/platform-backend/src/utils"
 	"go.uber.org/zap"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
 const (
-	TLSType    = "tls"
-	OpaqueType = "opaque"
+	tlsType    = "tls"
+	opaqueType = "opaque"
 )
 
 type SecretController interface {
@@ -58,7 +58,6 @@ func (n *secretController) CreateSecret(namespace string, request types.CreateSe
 	if err != nil {
 		return types.CreateSecretResponse{}, err
 	}
-
 	newSecret, err := n.client.CoreV1().Secrets(namespace).Create(n.ctx, secret, metav1.CreateOptions{})
 	if err != nil {
 		n.logger.Error(fmt.Sprintf("Could not create secret %q with error: %v", request.SecretName, err.Error()))
@@ -77,7 +76,7 @@ func (n *secretController) CreateSecret(namespace string, request types.CreateSe
 func (n *secretController) GetSecrets(namespace string) (types.GetSecretsResponse, error) {
 	n.logger.Debug(fmt.Sprintf("Trying to get all secrets in %q namespace", namespace))
 
-	secrets, err := n.client.CoreV1().Secrets(namespace).List(n.ctx, metav1.ListOptions{})
+	secrets, err := n.client.CoreV1().Secrets(namespace).List(n.ctx, metav1.ListOptions{LabelSelector: utils.ManagedLabelSelector})
 	if err != nil {
 		n.logger.Error(fmt.Sprintf("Could not get secrets with error: %v", err.Error()))
 		return types.GetSecretsResponse{}, err
@@ -110,23 +109,19 @@ func (n *secretController) GetSecret(namespace, name string) (types.GetSecretRes
 
 	n.logger.Debug("Fetched secret successfully")
 
+	secretData, err := decodeData(secret.Data)
+	if err != nil {
+		n.logger.Error(fmt.Sprintf("Error decoding secret %q value: %v", secret.Name, err.Error()))
+		return types.GetSecretResponse{}, k8serrors.NewInternalError(err)
+
+	}
 	response := types.GetSecretResponse{
 		Id:         string(secret.UID),
 		Type:       string(secret.Type),
 		SecretName: secret.Name,
+		Data:       secretData,
 	}
-	for k, v := range secret.Data {
-		value, err := base64.StdEncoding.DecodeString(string(v))
-		if err != nil {
-			n.logger.Error(fmt.Sprintf("Error decoding secret %q value: %v", name, err.Error()))
-			continue
-		}
 
-		response.Data = append(response.Data, types.KeyValue{
-			Key:   k,
-			Value: string(value),
-		})
-	}
 	return response, nil
 }
 
@@ -146,23 +141,20 @@ func (n *secretController) UpdateSecret(namespace, name string, request types.Up
 		return types.UpdateSecretResponse{}, err
 	}
 
-	response := types.UpdateSecretResponse{
-		Id:         string(result.UID),
-		Type:       string(result.Type),
-		SecretName: result.Name,
-	}
-	for k, v := range result.Data {
-		value, err := base64.StdEncoding.DecodeString(string(v))
-		if err != nil {
-			n.logger.Error(fmt.Sprintf("Error decoding secret %q value: %v", result.Name, err.Error()))
-			continue
-		}
+	secretData, err := decodeData(result.Data)
+	if err != nil {
+		n.logger.Error(fmt.Sprintf("Error decoding secret %q value: %v", result.Name, err.Error()))
+		return types.UpdateSecretResponse{}, k8serrors.NewInternalError(err)
 
-		response.Data = append(response.Data, types.KeyValue{
-			Key:   k,
-			Value: string(value),
-		})
 	}
+
+	response := types.UpdateSecretResponse{
+		Type:          string(result.Type),
+		SecretName:    result.Name,
+		NamespaceName: result.Namespace,
+		Data:          secretData,
+	}
+
 	return response, nil
 }
 
@@ -175,35 +167,36 @@ func (n *secretController) DeleteSecret(namespace, name string) (types.DeleteSec
 	}
 
 	return types.DeleteSecretResponse{
-		Message: fmt.Sprintf("Secret %q was deleted successfully", name),
+		Message: fmt.Sprintf("Deleted secret %q in namespace %q successfully", name, namespace),
 	}, nil
 }
 
 // createSecretFromRequest returns a new secret based on different secret
 // types, either TLS or Opaque.
-func newSecretFromRequest(namespace string, request types.CreateSecretRequest) (*v1.Secret, error) {
-	secret := &v1.Secret{
+func newSecretFromRequest(namespace string, request types.CreateSecretRequest) (*corev1.Secret, error) {
+	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      request.SecretName,
 			Namespace: namespace,
+			Labels:    utils.AddManagedLabel(map[string]string{}),
 		},
 	}
 
 	switch request.Type {
-	case TLSType:
+	case tlsType:
 		if request.Cert == "" || request.Key == "" {
 			return secret, k8serrors.NewBadRequest("cert and key are required for TLS secrets")
 		}
-		secret.Type = v1.SecretTypeTLS
+		secret.Type = corev1.SecretTypeTLS
 		secret.Data = map[string][]byte{
 			"tls.crt": []byte(base64.StdEncoding.EncodeToString([]byte(request.Cert))),
 			"tls.key": []byte(base64.StdEncoding.EncodeToString([]byte(request.Key))),
 		}
-	case OpaqueType:
+	case opaqueType:
 		if len(request.Data) == 0 {
 			return secret, k8serrors.NewBadRequest("data is required for Opaque secrets")
 		}
-		secret.Type = v1.SecretTypeOpaque
+		secret.Type = corev1.SecretTypeOpaque
 		secret.Data = map[string][]byte{}
 		for _, kv := range request.Data {
 			secret.Data[kv.Key] = []byte(base64.StdEncoding.EncodeToString([]byte(kv.Value)))
@@ -212,4 +205,31 @@ func newSecretFromRequest(namespace string, request types.CreateSecretRequest) (
 		return secret, k8serrors.NewBadRequest("unsupported secret type")
 	}
 	return secret, nil
+}
+
+// convertKeyValueToByteMap converts a slice of KeyValue pairs
+// to a map with string keys and byte slice values.
+func convertKeyValueToByteMap(kvList []types.KeyValue) map[string][]byte {
+	data := map[string][]byte{}
+	for _, kv := range kvList {
+		data[kv.Key] = []byte(base64.StdEncoding.EncodeToString([]byte(kv.Value)))
+	}
+	return data
+}
+
+// decodeData decodes secret data.
+func decodeData(encodedData map[string][]byte) ([]types.KeyValue, error) {
+	var decodedData []types.KeyValue
+	for k, v := range encodedData {
+		value, err := base64.StdEncoding.DecodeString(string(v))
+		if err != nil {
+			return decodedData, err
+		}
+
+		decodedData = append(decodedData, types.KeyValue{
+			Key:   k,
+			Value: string(value),
+		})
+	}
+	return decodedData, nil
 }

@@ -1,86 +1,455 @@
-package v1_test
+package v1
 
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"github.com/dana-team/platform-backend/src/utils/testutils"
+	"github.com/dana-team/platform-backend/src/utils/testutils/mocks"
+	corev1 "k8s.io/api/core/v1"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/dana-team/platform-backend/src/types"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCreateSecret(t *testing.T) {
-	secretRequest := types.CreateSecretRequest{
-		Type:       "opaque",
-		SecretName: "new-secret",
-		Data:       []types.KeyValue{{Key: "key1", Value: "ZmFrZQ=="}},
-	}
-	body, _ := json.Marshal(secretRequest)
-	request, _ := http.NewRequest("POST", "/v1/namespaces/default/secrets/", bytes.NewBuffer(body))
-	request.Header.Set("Content-Type", "application/json")
-
-	writer := httptest.NewRecorder()
-	router.ServeHTTP(writer, request)
-
-	assert.Equal(t, http.StatusOK, writer.Code)
-	var response types.CreateSecretResponse
-	err := json.Unmarshal(writer.Body.Bytes(), &response)
-	assert.NoError(t, err)
-	assert.Equal(t, "new-secret", response.SecretName)
-	assert.Equal(t, "default", response.NamespaceName)
-}
-
 func TestGetSecrets(t *testing.T) {
-	request, _ := http.NewRequest("GET", "/v1/namespaces/default/secrets/", nil)
-	writer := httptest.NewRecorder()
-	router.ServeHTTP(writer, request)
+	testNamespaceName := testutils.SecretNamespace + "-get"
 
-	assert.Equal(t, http.StatusOK, writer.Code)
-	var response types.GetSecretsResponse
-	err := json.Unmarshal(writer.Body.Bytes(), &response)
-	assert.NoError(t, err)
+	type requestURI struct {
+		namespace string
+	}
+
+	type want struct {
+		statusCode int
+		response   map[string]interface{}
+	}
+
+	cases := map[string]struct {
+		requestURI requestURI
+		want       want
+	}{
+		"ShouldSucceedGettingSecrets": {
+			requestURI: requestURI{
+				namespace: testNamespaceName,
+			},
+			want: want{
+				statusCode: http.StatusOK,
+				response: map[string]interface{}{
+					testutils.CountKey: 2,
+					testutils.SecretsKey: []types.Secret{
+						{SecretName: testutils.SecretName + "-1", NamespaceName: testNamespaceName, Type: string(corev1.SecretTypeOpaque)},
+						{SecretName: testutils.SecretName + "-2", NamespaceName: testNamespaceName, Type: string(corev1.SecretTypeOpaque)}},
+				},
+			},
+		},
+	}
+
+	setup()
+	mocks.CreateTestNamespace(fakeClient, testNamespaceName)
+	mocks.CreateTestSecret(fakeClient, testutils.SecretName+"-1", testNamespaceName)
+	mocks.CreateTestSecret(fakeClient, testutils.SecretName+"-2", testNamespaceName)
+
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			baseURI := fmt.Sprintf("/v1/namespaces/%s/secrets", test.requestURI.namespace)
+			request, err := http.NewRequest(http.MethodGet, baseURI, nil)
+			assert.NoError(t, err)
+
+			writer := httptest.NewRecorder()
+			router.ServeHTTP(writer, request)
+
+			assert.Equal(t, test.want.statusCode, writer.Code)
+
+			var response map[string]interface{}
+			err = json.Unmarshal(writer.Body.Bytes(), &response)
+			assert.NoError(t, err)
+
+			wantResponseJSON, _ := json.Marshal(test.want.response)
+			var wantResponseNormalized map[string]interface{}
+			err = json.Unmarshal(wantResponseJSON, &wantResponseNormalized)
+			assert.NoError(t, err)
+			assert.Equal(t, wantResponseNormalized, response)
+		})
+	}
 }
 
-func TestGetSpecificSecret(t *testing.T) {
-	request, _ := http.NewRequest("GET", "/v1/namespaces/default/secrets/test-secret", nil)
-	writer := httptest.NewRecorder()
-	router.ServeHTTP(writer, request)
+func TestGetSecret(t *testing.T) {
+	testNamespaceName := testutils.SecretNamespace + "-get-one"
 
-	assert.Equal(t, http.StatusOK, writer.Code)
-	var response types.GetSecretResponse
-	err := json.Unmarshal(writer.Body.Bytes(), &response)
-	assert.NoError(t, err)
-	assert.Equal(t, "test-secret", response.SecretName)
+	type requestURI struct {
+		namespace string
+		name      string
+	}
+
+	type want struct {
+		statusCode int
+		response   map[string]interface{}
+	}
+
+	cases := map[string]struct {
+		requestURI requestURI
+		want       want
+	}{
+		"ShouldSucceedGettingSecret": {
+			requestURI: requestURI{
+				name:      testutils.SecretName,
+				namespace: testNamespaceName,
+			},
+			want: want{
+				statusCode: http.StatusOK,
+				response: map[string]interface{}{
+					testutils.SecretNameKey: testutils.SecretName,
+					testutils.IdKey:         "",
+					testutils.TypeKey:       string(corev1.SecretTypeOpaque),
+					testutils.DataKey:       []types.KeyValue{{Key: testutils.SecretDataKey, Value: testutils.SecretDataValue}},
+				},
+			},
+		},
+		"ShouldHandleNotFoundSecret": {
+			requestURI: requestURI{
+				name:      testutils.SecretName + testutils.NonExistentSuffix,
+				namespace: testNamespaceName,
+			},
+			want: want{
+				statusCode: http.StatusNotFound,
+				response: map[string]interface{}{
+					testutils.DetailsKey: fmt.Sprintf("%s %q not found", testutils.SecretsKey, testutils.SecretName+testutils.NonExistentSuffix),
+					testutils.ErrorKey:   testutils.OperationFailed,
+				},
+			},
+		},
+		"ShouldHandleNotFoundNamespace": {
+			requestURI: requestURI{
+				name:      testutils.SecretName,
+				namespace: testNamespaceName + testutils.NonExistentSuffix,
+			},
+			want: want{
+				statusCode: http.StatusNotFound,
+				response: map[string]interface{}{
+					testutils.DetailsKey: fmt.Sprintf("%s %q not found", testutils.SecretsKey, testutils.SecretName),
+					testutils.ErrorKey:   testutils.OperationFailed,
+				},
+			},
+		},
+	}
+
+	setup()
+	mocks.CreateTestNamespace(fakeClient, testNamespaceName)
+	mocks.CreateTestSecret(fakeClient, testutils.SecretName, testNamespaceName)
+
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			baseURI := fmt.Sprintf("/v1/namespaces/%s/secrets/%s", test.requestURI.namespace, test.requestURI.name)
+			request, err := http.NewRequest(http.MethodGet, baseURI, nil)
+			assert.NoError(t, err)
+
+			writer := httptest.NewRecorder()
+			router.ServeHTTP(writer, request)
+
+			assert.Equal(t, test.want.statusCode, writer.Code)
+
+			var response map[string]interface{}
+			err = json.Unmarshal(writer.Body.Bytes(), &response)
+			assert.NoError(t, err)
+
+			wantResponseJSON, err := json.Marshal(test.want.response)
+			assert.NoError(t, err)
+			var wantResponseNormalized map[string]interface{}
+			err = json.Unmarshal(wantResponseJSON, &wantResponseNormalized)
+			assert.NoError(t, err)
+			assert.Equal(t, wantResponseNormalized, response)
+		})
+	}
+}
+
+func TestCreateSecret(t *testing.T) {
+	testNamespaceName := testutils.SecretNamespace + "-create"
+
+	type requestURI struct {
+		namespace string
+	}
+
+	type want struct {
+		statusCode int
+		response   map[string]interface{}
+	}
+
+	cases := map[string]struct {
+		requestURI  requestURI
+		want        want
+		requestData interface{}
+	}{
+		"ShouldSucceedCreateSecret": {
+			requestURI: requestURI{
+				namespace: testNamespaceName,
+			},
+			want: want{
+				statusCode: http.StatusOK,
+				response: map[string]interface{}{
+					testutils.SecretNameKey:    testutils.SecretName,
+					testutils.TypeKey:          string(corev1.SecretTypeOpaque),
+					testutils.NamespacenameKey: testNamespaceName,
+				},
+			},
+			requestData: mocks.PrepareCreateSecretRequestType(testutils.SecretName, strings.ToLower(string(corev1.SecretTypeOpaque)), "", "",
+				[]types.KeyValue{{Key: testutils.SecretDataKey, Value: testutils.SecretDataValue}}),
+		},
+		"ShouldFailWithBadRequestBody": {
+			requestURI: requestURI{
+				namespace: testNamespaceName,
+			},
+			requestData: map[string]interface{}{
+				testutils.SecretNameKey: testutils.SecretName,
+				testutils.TypeKey:       strings.ToLower(string(corev1.SecretTypeOpaque)),
+			},
+			want: want{
+				statusCode: http.StatusBadRequest,
+				response: map[string]interface{}{
+					testutils.DetailsKey: "data is required for Opaque secrets",
+					testutils.ErrorKey:   testutils.OperationFailed,
+				},
+			},
+		},
+		"ShouldHandleAlreadyExists": {
+			requestURI: requestURI{
+				namespace: testNamespaceName,
+			},
+			want: want{
+				statusCode: http.StatusConflict,
+				response: map[string]interface{}{
+					testutils.DetailsKey: fmt.Sprintf("%s %q already exists", testutils.SecretsKey, testutils.SecretName+"-1"),
+					testutils.ErrorKey:   testutils.OperationFailed,
+				},
+			},
+			requestData: mocks.PrepareCreateSecretRequestType(testutils.SecretName+"-1", strings.ToLower(string(corev1.SecretTypeOpaque)), "", "",
+				[]types.KeyValue{{Key: testutils.SecretDataKey, Value: testutils.SecretDataValue}}),
+		},
+	}
+
+	setup()
+	mocks.CreateTestNamespace(fakeClient, testNamespaceName)
+	mocks.CreateTestSecret(fakeClient, testutils.SecretName+"-1", testNamespaceName)
+
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			payload, err := json.Marshal(test.requestData)
+			assert.NoError(t, err)
+
+			baseURI := fmt.Sprintf("/v1/namespaces/%s/secrets", test.requestURI.namespace)
+			request, err := http.NewRequest(http.MethodPost, baseURI, bytes.NewBuffer(payload))
+			assert.NoError(t, err)
+			request.Header.Set(testutils.ContentType, testutils.ApplicationJson)
+
+			writer := httptest.NewRecorder()
+			router.ServeHTTP(writer, request)
+
+			assert.Equal(t, test.want.statusCode, writer.Code)
+
+			var response map[string]interface{}
+			err = json.Unmarshal(writer.Body.Bytes(), &response)
+			assert.NoError(t, err)
+
+			wantResponseJSON, err := json.Marshal(test.want.response)
+			assert.NoError(t, err)
+			var wantResponseNormalized map[string]interface{}
+			err = json.Unmarshal(wantResponseJSON, &wantResponseNormalized)
+			assert.NoError(t, err)
+			assert.Equal(t, wantResponseNormalized, response)
+		})
+	}
 }
 
 func TestUpdateSecret(t *testing.T) {
-	updateRequest := types.UpdateSecretRequest{
-		Data: []types.KeyValue{{Key: "key2", Value: "ZmFrZQ=="}},
+	testNamespaceName := testutils.SecretNamespace + "-update"
+
+	type requestURI struct {
+		namespace string
+		name      string
 	}
-	body, _ := json.Marshal(updateRequest)
-	request, _ := http.NewRequest("PUT", "/v1/namespaces/default/secrets/test-secret", bytes.NewBuffer(body))
-	request.Header.Set("Content-Type", "application/json")
 
-	writer := httptest.NewRecorder()
-	router.ServeHTTP(writer, request)
+	type want struct {
+		statusCode int
+		response   map[string]interface{}
+	}
+	cases := map[string]struct {
+		requestURI  requestURI
+		want        want
+		requestData interface{}
+	}{
+		"ShouldSucceedUpdatingSecret": {
+			requestURI: requestURI{
+				name:      testutils.SecretName,
+				namespace: testNamespaceName,
+			},
+			want: want{
+				statusCode: http.StatusOK,
+				response: map[string]interface{}{
+					testutils.SecretNameKey:    testutils.SecretName,
+					testutils.TypeKey:          string(corev1.SecretTypeOpaque),
+					testutils.NamespacenameKey: testNamespaceName,
+					testutils.DataKey:          []types.KeyValue{{Key: testutils.SecretDataKey, Value: testutils.SecretDataValue}},
+				},
+			},
+			requestData: mocks.PrepareSecretRequestType([]types.KeyValue{{Key: testutils.SecretDataKey, Value: testutils.SecretDataValue}}),
+		},
+		"ShouldHandleNotFoundSecret": {
+			requestURI: requestURI{
+				name:      testutils.SecretName + testutils.NonExistentSuffix,
+				namespace: testNamespaceName,
+			},
+			want: want{
+				statusCode: http.StatusNotFound,
+				response: map[string]interface{}{
+					testutils.DetailsKey: fmt.Sprintf("%s %q not found", testutils.SecretsKey, testutils.SecretName+testutils.NonExistentSuffix),
+					testutils.ErrorKey:   testutils.OperationFailed,
+				},
+			},
+			requestData: mocks.PrepareSecretRequestType([]types.KeyValue{{Key: testutils.SecretDataKey, Value: testutils.SecretDataValue}}),
+		},
+		"ShouldHandleNotFoundNamespace": {
+			requestURI: requestURI{
+				name:      testutils.SecretName,
+				namespace: testNamespaceName + testutils.NonExistentSuffix,
+			},
+			want: want{
+				statusCode: http.StatusNotFound,
+				response: map[string]interface{}{
+					testutils.DetailsKey: fmt.Sprintf("%s %q not found", testutils.SecretsKey, testutils.SecretName),
+					testutils.ErrorKey:   testutils.OperationFailed,
+				},
+			},
+			requestData: mocks.PrepareSecretRequestType([]types.KeyValue{{Key: testutils.SecretDataKey, Value: testutils.SecretDataValue}}),
+		},
+		"ShouldFailWithBadRequestBody": {
+			requestURI: requestURI{
+				name:      testutils.SecretName,
+				namespace: testNamespaceName,
+			},
+			want: want{
+				statusCode: http.StatusBadRequest,
+				response: map[string]interface{}{
+					testutils.DetailsKey: "Key: 'UpdateSecretRequest.Data' Error:Field validation for 'Data' failed on the 'required' tag",
+					testutils.ErrorKey:   testutils.InvalidRequest,
+				},
+			},
+			requestData: map[string]interface{}{},
+		},
+	}
 
-	assert.Equal(t, http.StatusOK, writer.Code)
-	var response types.UpdateSecretResponse
-	err := json.Unmarshal(writer.Body.Bytes(), &response)
-	assert.NoError(t, err)
-	assert.Equal(t, "test-secret", response.SecretName)
+	setup()
+	mocks.CreateTestNamespace(fakeClient, testNamespaceName)
+	mocks.CreateTestSecret(fakeClient, testutils.SecretName, testNamespaceName)
+
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			payload, err := json.Marshal(test.requestData)
+			assert.NoError(t, err)
+
+			baseURI := fmt.Sprintf("/v1/namespaces/%s/secrets/%s", test.requestURI.namespace, test.requestURI.name)
+			request, err := http.NewRequest(http.MethodPut, baseURI, bytes.NewBuffer(payload))
+			request.Header.Set(testutils.ContentType, testutils.ApplicationJson)
+
+			assert.NoError(t, err)
+			writer := httptest.NewRecorder()
+			router.ServeHTTP(writer, request)
+			assert.Equal(t, test.want.statusCode, writer.Code)
+
+			var response map[string]interface{}
+			err = json.Unmarshal(writer.Body.Bytes(), &response)
+			assert.NoError(t, err)
+
+			wantResponseJSON, _ := json.Marshal(test.want.response)
+			var wantResponseNormalized map[string]interface{}
+			err = json.Unmarshal(wantResponseJSON, &wantResponseNormalized)
+			assert.NoError(t, err)
+			assert.Equal(t, wantResponseNormalized, response)
+		})
+	}
 }
 
 func TestDeleteSecret(t *testing.T) {
-	request, _ := http.NewRequest("DELETE", "/v1/namespaces/default/secrets/test-secret", nil)
-	writer := httptest.NewRecorder()
-	router.ServeHTTP(writer, request)
+	testNamespaceName := testutils.SecretNamespace + "-delete"
 
-	assert.Equal(t, http.StatusOK, writer.Code)
-	var response types.DeleteSecretResponse
-	err := json.Unmarshal(writer.Body.Bytes(), &response)
-	assert.NoError(t, err)
-	assert.Equal(t, "Secret \"test-secret\" was deleted successfully", response.Message)
+	type requestURI struct {
+		namespace string
+		name      string
+	}
+
+	type want struct {
+		statusCode int
+		response   map[string]interface{}
+	}
+
+	cases := map[string]struct {
+		requestURI requestURI
+		want       want
+	}{
+		"ShouldSucceedDeletingSecret": {
+			requestURI: requestURI{
+				name:      testutils.SecretName,
+				namespace: testNamespaceName,
+			},
+			want: want{
+				statusCode: http.StatusOK,
+				response: map[string]interface{}{
+					testutils.MessageKey: fmt.Sprintf("Deleted secret %q in namespace %q successfully", testutils.SecretName, testNamespaceName)},
+			},
+		},
+		"ShouldHandleNotFoundSecret": {
+			requestURI: requestURI{
+				name:      testutils.SecretName + testutils.NonExistentSuffix,
+				namespace: testNamespaceName,
+			},
+			want: want{
+				statusCode: http.StatusNotFound,
+				response: map[string]interface{}{
+					testutils.DetailsKey: fmt.Sprintf("%s %q not found", testutils.SecretsKey, testutils.SecretName+testutils.NonExistentSuffix),
+					testutils.ErrorKey:   testutils.OperationFailed,
+				},
+			},
+		},
+		"ShouldHandleNotFoundNamespace": {
+			requestURI: requestURI{
+				name:      testutils.SecretName,
+				namespace: testNamespaceName + testutils.NonExistentSuffix,
+			},
+			want: want{
+				statusCode: http.StatusNotFound,
+				response: map[string]interface{}{
+					testutils.DetailsKey: fmt.Sprintf("%s %q not found", testutils.SecretsKey, testutils.SecretName),
+					testutils.ErrorKey:   testutils.OperationFailed,
+				},
+			},
+		},
+	}
+
+	setup()
+	mocks.CreateTestNamespace(fakeClient, testNamespaceName)
+	mocks.CreateTestSecret(fakeClient, testutils.SecretName, testNamespaceName)
+
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			baseURI := fmt.Sprintf("/v1/namespaces/%s/secrets/%s", test.requestURI.namespace, test.requestURI.name)
+			request, err := http.NewRequest(http.MethodDelete, baseURI, nil)
+			assert.NoError(t, err)
+			writer := httptest.NewRecorder()
+			router.ServeHTTP(writer, request)
+			assert.Equal(t, test.want.statusCode, writer.Code)
+
+			var response map[string]interface{}
+			err = json.Unmarshal(writer.Body.Bytes(), &response)
+			assert.NoError(t, err)
+
+			wantResponseJSON, _ := json.Marshal(test.want.response)
+			var wantResponseNormalized map[string]interface{}
+			err = json.Unmarshal(wantResponseJSON, &wantResponseNormalized)
+			assert.NoError(t, err)
+			assert.Equal(t, wantResponseNormalized, response)
+
+		})
+	}
 }

@@ -1,7 +1,12 @@
 package controllers
 
 import (
+	"context"
+	"github.com/dana-team/platform-backend/src/utils/testutils/mocks"
+	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -85,140 +90,112 @@ func TestFetchCappPodName(t *testing.T) {
 	}
 }
 
-//func TestFetchPodLogs(t *testing.T) {
-//	// Mock Kubernetes client
-//	mockClient := &MockKubernetesClient{}
-//
-//	type args struct {
-//		ctx           context.Context
-//		client        kubernetes.Interface
-//		namespace     string
-//		podName       string
-//		containerName string
-//	}
-//	type want struct {
-//		errContains string
-//	}
-//
-//	cases := map[string]struct {
-//		args args
-//		want want
-//	}{
-//		"Successful log stream": {
-//			args: args{
-//				ctx:           context.TODO(),
-//				client:        mockClient,
-//				namespace:     "test-namespace",
-//				podName:       "test-pod-1",
-//				containerName: "test-container",
-//			},
-//			want: want{
-//				errContains: "",
-//			},
-//		},
-//		"Error opening log stream": {
-//			args: args{
-//				ctx:           context.TODO(),
-//				client:        mockClient,
-//				namespace:     "test-namespace",
-//				podName:       "non-existent-pod",
-//				containerName: "test-container",
-//			},
-//			want: want{
-//				errContains: "error opening log stream",
-//			},
-//		},
-//	}
-//
-//	for name, tc := range cases {
-//		t.Run(name, func(t *testing.T) {
-//			_, err := FetchPodLogs(tc.args.ctx, tc.args.client, tc.args.namespace, tc.args.podName, tc.args.containerName)
-//			if tc.want.errContains == "" {
-//				if err != nil {
-//					t.Errorf("Unexpected error: %v", err)
-//				}
-//			} else {
-//				if err == nil || !strings.Contains(err.Error(), tc.want.errContains) {
-//					t.Errorf("Expected error containing '%s', but got: %v", tc.want.errContains, err)
-//				}
-//			}
-//		})
-//	}
-//}
-//
-//func TestFetchCappLogs(t *testing.T) {
-//	// Mock Kubernetes client
-//	mockClient := &MockKubernetesClient{}
-//
-//	type args struct {
-//		ctx           context.Context
-//		client        kubernetes.Interface
-//		namespace     string
-//		cappName      string
-//		containerName string
-//		podName       string
-//	}
-//	type want struct {
-//		errContains string
-//	}
-//
-//	cases := map[string]struct {
-//		args args
-//		want want
-//	}{
-//		"Successful log stream": {
-//			args: args{
-//				ctx:           context.TODO(),
-//				client:        mockClient,
-//				namespace:     "test-namespace",
-//				cappName:      "test-capp",
-//				containerName: "test-container",
-//				podName:       "test-pod-1",
-//			},
-//			want: want{
-//				errContains: "",
-//			},
-//		},
-//		"No pods found for Capp": {
-//			args: args{
-//				ctx:           context.TODO(),
-//				client:        mockClient,
-//				namespace:     "test-namespace",
-//				cappName:      "non-existent-capp",
-//				containerName: "test-container",
-//				podName:       "test-pod-1",
-//			},
-//			want: want{
-//				errContains: "no pods found for Capp",
-//			},
-//		},
-//		"Pod not found for Capp": {
-//			args: args{
-//				ctx:           context.TODO(),
-//				client:        mockClient,
-//				namespace:     "test-namespace",
-//				cappName:      "test-capp",
-//				containerName: "test-container",
-//				podName:       "non-existent-pod",
-//			},
-//			want: want{
-//				errContains: "pod 'non-existent-pod' not found for Capp",
-//			},
-//		},
-//	}
-//
-//	for name, tc := range cases {
-//		t.Run(name, func(t *testing.T) {
-//			_, err := FetchCappLogs(tc.args.ctx, tc.args.client, tc.args.namespace, tc.args.cappName, tc.args.containerName, tc.args.podName)
-//			if tc.want.errContains == "" {
-//				if err != nil {
-//					t.Errorf("Unexpected error: %v", err)
-//				}
-//			} else {
-//				if err == nil || !strings.Contains(err.Error(), tc.want.errContains) {
-//					t.Errorf("Expected error containing '%s', but got: %v", tc.want.errContains, err)
-//				}
-//			}
-//		})
-//	}
-//}
+func TestFetchPodLogs(t *testing.T) {
+	type args struct {
+		client        kubernetes.Interface
+		namespace     string
+		podName       string
+		containerName string
+	}
+	type want struct {
+		errContains string
+	}
+
+	cases := map[string]struct {
+		args args
+		want want
+	}{
+		"ShouldFailGettingLogsOnNonExistingPod": {
+			args: args{
+				client:        fakeClient,
+				namespace:     "test-namespace",
+				podName:       "non-existent-pod",
+				containerName: "test-container",
+			},
+			want: want{
+				errContains: "error opening log stream",
+			},
+		},
+	}
+
+	setup()
+	mocks.CreateTestPod(fakeClient, "test-namespace", "test-pod-1", "")
+	mockLogger, _ := zap.NewDevelopment()
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := FetchPodLogs(context.TODO(), tc.args.client, tc.args.namespace, tc.args.podName, tc.args.containerName, mockLogger)
+			if tc.want.errContains == "" {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+			} else {
+				if err == nil || !strings.Contains(err.Error(), tc.want.errContains) {
+					t.Errorf("Expected error containing '%s', but got: %v", tc.want.errContains, err)
+				}
+			}
+		})
+	}
+}
+
+func TestFetchCappLogs(t *testing.T) {
+	type args struct {
+		client        kubernetes.Interface
+		namespace     string
+		cappName      string
+		containerName string
+		podName       string
+	}
+	type want struct {
+		errContains string
+	}
+
+	cases := map[string]struct {
+		args args
+		want want
+	}{
+		"ShouldReturnNoPodsForNonExistingCapp": {
+			args: args{
+				client:        fakeClient,
+				namespace:     "test-namespace",
+				cappName:      "non-existent-capp",
+				containerName: "test-container",
+				podName:       "test-pod-1",
+			},
+			want: want{
+				errContains: "no pods found for Capp",
+			},
+		},
+		"ShouldFailOnNonExistingPod": {
+			args: args{
+				client:        fakeClient,
+				namespace:     "test-namespace",
+				cappName:      "test-capp",
+				containerName: "test-container",
+				podName:       "non-existent-pod",
+			},
+			want: want{
+				errContains: "o pods found for Capp test-capp in namespace test-namespace",
+			},
+		},
+	}
+
+	setup()
+	mocks.CreateTestPod(fakeClient, "test-namespace", "test-pod-1", "test-capp")
+	mockLogger, _ := zap.NewDevelopment()
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := FetchCappLogs(context.TODO(), tc.args.client, tc.args.namespace, tc.args.cappName, tc.args.containerName, tc.args.podName, mockLogger)
+			if tc.want.errContains == "" {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+			} else {
+				if err == nil || !strings.Contains(err.Error(), tc.want.errContains) {
+					t.Errorf("Expected error containing '%s', but got: %v", tc.want.errContains, err)
+				}
+			}
+		})
+	}
+}

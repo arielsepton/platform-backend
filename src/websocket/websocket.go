@@ -8,14 +8,18 @@ import (
 	"net/http"
 )
 
+// WebSocketHandler defines an interface for registering a WebSocket connection.
 type WebSocketHandler interface {
 	Register(c *gin.Context) (*websocket.Conn, error)
 }
 
+// WebSocket struct holds the websocket.Upgrader.
 type WebSocket struct {
 	upgrader websocket.Upgrader
 }
 
+// NewWebSocket creates a new WebSocket instance with the provided upgrader.
+// If no upgrader is provided, it uses the DefaultUpgrader.
 func NewWebSocket(upgrader *websocket.Upgrader) *WebSocket {
 	if upgrader == nil {
 		upgrader = DefaultUpgrader()
@@ -26,9 +30,9 @@ func NewWebSocket(upgrader *websocket.Upgrader) *WebSocket {
 	}
 }
 
+// Register upgrades an HTTP connection to a WebSocket connection.
+// It retrieves the token from the context and sets it in the WebSocket headers.
 func (ws *WebSocket) Register(c *gin.Context) (*websocket.Conn, error) {
-	ws.upgrader.CheckOrigin = func(r *http.Request) bool { return true }
-
 	token, exists := c.Get("token")
 	if !exists {
 		return nil, errors.New("Token not found")

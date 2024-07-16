@@ -1,7 +1,8 @@
-package v1_test
+package v1
 
 import (
 	"github.com/dana-team/platform-backend/src/middleware"
+	"github.com/dana-team/platform-backend/src/utils/testutils/mocks"
 	"github.com/gorilla/websocket"
 	"net/http"
 	"net/http/httptest"
@@ -11,13 +12,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const (
+	testNamespace = "test-namespace"
+)
+
 func Test_GetCappLogs(t *testing.T) {
 	type args struct {
-		token     string
-		namespace string
-		cappName  string
-		container string
-		wsUrl     string
+		token string
+		wsUrl string
 	}
 	type want struct {
 		statusCode    int
@@ -30,11 +32,8 @@ func Test_GetCappLogs(t *testing.T) {
 	}{
 		"ShouldStreamLogsWithoutQueryParams": {
 			args: args{
-				token:     "valid_token",
-				namespace: testNamespace,
-				cappName:  "test-capp",
-				container: "test-container",
-				wsUrl:     "/v1/logs/capp/" + testNamespace + "/test-capp",
+				token: "valid_token",
+				wsUrl: "/v1/logs/capp/" + testNamespace + "/test-capp",
 			},
 			want: want{
 				statusCode:    http.StatusSwitchingProtocols,
@@ -43,11 +42,8 @@ func Test_GetCappLogs(t *testing.T) {
 		},
 		"ShouldNotStreamLogsWithInvalidCappName": {
 			args: args{
-				token:     "valid_token",
-				namespace: testNamespace,
-				cappName:  "test-capp",
-				container: "test-container",
-				wsUrl:     "/v1/logs/capp/" + testNamespace + "/invalid-capp",
+				token: "valid_token",
+				wsUrl: "/v1/logs/capp/" + testNamespace + "/invalid-capp",
 			},
 			want: want{
 				statusCode:    http.StatusSwitchingProtocols,
@@ -56,11 +52,8 @@ func Test_GetCappLogs(t *testing.T) {
 		},
 		"ShouldStreamLogsWithQueryParams": {
 			args: args{
-				token:     "valid_token",
-				namespace: testNamespace,
-				cappName:  "test-capp",
-				container: "test-container",
-				wsUrl:     "/v1/logs/capp/" + testNamespace + "/test-capp?podName=test-pod-2",
+				token: "valid_token",
+				wsUrl: "/v1/logs/capp/" + testNamespace + "/test-capp?podName=test-pod-2",
 			},
 			want: want{
 				statusCode:    http.StatusSwitchingProtocols,
@@ -69,11 +62,8 @@ func Test_GetCappLogs(t *testing.T) {
 		},
 		"ShouldNotStreamLogsWithNonExistingPodName": {
 			args: args{
-				token:     "valid_token",
-				namespace: testNamespace,
-				cappName:  "test-capp",
-				container: "test-container",
-				wsUrl:     "/v1/logs/capp/" + testNamespace + "/test-capp?podName=fakepod",
+				token: "valid_token",
+				wsUrl: "/v1/logs/capp/" + testNamespace + "/test-capp?podName=fakepod",
 			},
 			want: want{
 				statusCode:    http.StatusSwitchingProtocols,
@@ -82,11 +72,8 @@ func Test_GetCappLogs(t *testing.T) {
 		},
 		"ShouldNotStreamLogsWithInvalidContainerName": {
 			args: args{
-				token:     "valid_token",
-				namespace: testNamespace,
-				cappName:  "test-capp",
-				container: "test-container",
-				wsUrl:     "/v1/logs/capp/" + testNamespace + "/test-capp?container=nonexisting",
+				token: "valid_token",
+				wsUrl: "/v1/logs/capp/" + testNamespace + "/test-capp?container=nonexisting",
 			},
 			want: want{
 				statusCode:    http.StatusSwitchingProtocols,
@@ -95,11 +82,8 @@ func Test_GetCappLogs(t *testing.T) {
 		},
 		"ShouldStreamLogsWithValidContainerName": {
 			args: args{
-				token:     "valid_token",
-				namespace: testNamespace,
-				cappName:  "test-capp",
-				container: "test-container",
-				wsUrl:     "/v1/logs/capp/" + testNamespace + "/test-capp?container=test-container",
+				token: "valid_token",
+				wsUrl: "/v1/logs/capp/" + testNamespace + "/test-capp?container=test-container",
 			},
 			want: want{
 				statusCode:    http.StatusSwitchingProtocols,
@@ -107,6 +91,10 @@ func Test_GetCappLogs(t *testing.T) {
 			},
 		},
 	}
+
+	setup()
+	mocks.CreateTestPod(fakeClient, testNamespace, "test-pod-1", "")
+	mocks.CreateTestPod(fakeClient, testNamespace, "test-pod-2", "test-capp")
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -145,11 +133,8 @@ func Test_GetCappLogs(t *testing.T) {
 
 func Test_GetPodLogs(t *testing.T) {
 	type args struct {
-		token     string
-		namespace string
-		podName   string
-		container string
-		wsUrl     string
+		token string
+		wsUrl string
 	}
 	type want struct {
 		statusCode    int
@@ -162,11 +147,8 @@ func Test_GetPodLogs(t *testing.T) {
 	}{
 		"ShouldStreamLogsWithoutQueryParams": {
 			args: args{
-				token:     "valid_token",
-				namespace: testNamespace,
-				podName:   "test-pod-1",
-				container: "test-container",
-				wsUrl:     "/v1/logs/pod/" + testNamespace + "/test-pod-1",
+				token: "valid_token",
+				wsUrl: "/v1/logs/pod/" + testNamespace + "/test-pod-1",
 			},
 			want: want{
 				statusCode:    http.StatusSwitchingProtocols,
@@ -175,11 +157,8 @@ func Test_GetPodLogs(t *testing.T) {
 		},
 		"ShouldStreamLogsWithQueryParams": {
 			args: args{
-				token:     "valid_token",
-				namespace: testNamespace,
-				podName:   "test-pod-1",
-				container: "test-container",
-				wsUrl:     "/v1/logs/pod/" + testNamespace + "/test-pod-1?container=test-container",
+				token: "valid_token",
+				wsUrl: "/v1/logs/pod/" + testNamespace + "/test-pod-1?container=test-container",
 			},
 			want: want{
 				statusCode:    http.StatusSwitchingProtocols,
@@ -188,11 +167,8 @@ func Test_GetPodLogs(t *testing.T) {
 		},
 		"ShouldNotStreamLogsWithNonExistingPodName": {
 			args: args{
-				token:     "valid_token",
-				namespace: testNamespace,
-				podName:   "test-pod-1",
-				container: "test-container",
-				wsUrl:     "/v1/logs/pod/" + testNamespace + "/test-invalid-pod",
+				token: "valid_token",
+				wsUrl: "/v1/logs/pod/" + testNamespace + "/test-invalid-pod",
 			},
 			want: want{
 				statusCode:    http.StatusSwitchingProtocols,
@@ -201,11 +177,8 @@ func Test_GetPodLogs(t *testing.T) {
 		},
 		"ShouldNotStreamLogsWithInvalidContainerName": {
 			args: args{
-				token:     "valid_token",
-				namespace: testNamespace,
-				podName:   "test-pod-1",
-				container: "test-container",
-				wsUrl:     "/v1/logs/pod/" + testNamespace + "/test-pod-1?container=non-existing-container",
+				token: "valid_token",
+				wsUrl: "/v1/logs/pod/" + testNamespace + "/test-pod-1?container=non-existing-container",
 			},
 			want: want{
 				statusCode:    http.StatusSwitchingProtocols,

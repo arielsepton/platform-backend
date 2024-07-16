@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"go.uber.org/zap"
 	"io"
 	corev1 "k8s.io/api/core/v1"
 
@@ -16,9 +17,10 @@ const (
 
 // FetchPodLogs retrieves the logs of a specific container in a pod.
 // It opens a log stream, reads the logs, and returns them as a string.
-func FetchPodLogs(ctx context.Context, client kubernetes.Interface, namespace, podName, containerName string) (io.ReadCloser, error) {
+func FetchPodLogs(ctx context.Context, client kubernetes.Interface, namespace, podName, containerName string, logger *zap.Logger) (io.ReadCloser, error) {
 	logStream, err := utils.GetPodLogStream(ctx, client, namespace, podName, containerName)
 	if err != nil {
+		logger.Info(fmt.Sprintf("error opening log stream: %s", err.Error()))
 		return nil, fmt.Errorf("error opening log stream: %w", err)
 	}
 
@@ -27,17 +29,20 @@ func FetchPodLogs(ctx context.Context, client kubernetes.Interface, namespace, p
 
 // FetchCappLogs retrieves the logs of a Capp's Knative service.
 // It fetches the pods associated with the service, selects the first pod, and retrieves its logs.
-func FetchCappLogs(ctx context.Context, client kubernetes.Interface, namespace, cappName, containerName, podName string) (io.ReadCloser, error) {
+func FetchCappLogs(ctx context.Context, client kubernetes.Interface, namespace, cappName, containerName, podName string, logger *zap.Logger) (io.ReadCloser, error) {
 	pods, err := utils.GetPodsByLabel(ctx, client, namespace, fmt.Sprintf(cappLabel, cappName))
 	if err != nil {
+		logger.Info(fmt.Sprintf("error fetching Capp pods: %s", err.Error()))
 		return nil, fmt.Errorf("error fetching Capp pods: %w", err)
 	}
 
 	if len(pods.Items) == 0 {
+		logger.Info(fmt.Sprintf("no pods found for Capp %s in namespace %s", cappName, namespace))
 		return nil, fmt.Errorf("no pods found for Capp %s in namespace %s", cappName, namespace)
 	}
 
 	podName, ok := FetchCappPodName(podName, pods)
+	logger.Info(fmt.Sprintf("pod '%s' not found for Capp %s in namespace %s", podName, cappName, namespace))
 	if !ok {
 		return nil, fmt.Errorf("pod '%s' not found for Capp %s in namespace %s", podName, cappName, namespace)
 	}
@@ -46,7 +51,7 @@ func FetchCappLogs(ctx context.Context, client kubernetes.Interface, namespace, 
 		containerName = cappName
 	}
 
-	return FetchPodLogs(ctx, client, namespace, podName, containerName)
+	return FetchPodLogs(ctx, client, namespace, podName, containerName, logger)
 }
 
 // FetchCappPodName returns the validated pod name from the provided list of pods.

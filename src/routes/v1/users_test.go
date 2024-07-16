@@ -1,375 +1,438 @@
-package v1_test
+package v1
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/dana-team/platform-backend/src/types"
+	"github.com/dana-team/platform-backend/src/utils/testutils"
+	"github.com/dana-team/platform-backend/src/utils/testutils/mocks"
+	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/dana-team/platform-backend/src/types"
-	"github.com/stretchr/testify/assert"
 )
 
-func TestGetUser(t *testing.T) {
-	userNamespace := "test-namespace-user"
-	type requestUri struct {
-		namespace string
-		username  string
-	}
-
-	type want struct {
-		statusCode int
-		response   map[string]string
-	}
-
-	cases := map[string]struct {
-		requestUri requestUri
-		want       want
-	}{
-		"ShouldSuccessGettingUser": {
-			requestUri: requestUri{
-				username:  "test-user",
-				namespace: userNamespace,
-			},
-			want: want{
-				statusCode: http.StatusOK,
-				response: map[string]string{
-					"name": "test-user",
-					"role": "admin",
-				},
-			},
-		},
-		"ShouldNotFoundUser": {
-			requestUri: requestUri{
-				username:  "test-not-exists",
-				namespace: userNamespace,
-			},
-			want: want{
-				statusCode: http.StatusNotFound,
-				response: map[string]string{
-					"details": fmt.Sprintf("rolebindings.rbac.authorization.k8s.io %q not found", "test-not-exists"),
-					"error":   "Operation failed",
-				},
-			},
-		},
-		"ShouldNotFoundNamespace": {
-			requestUri: requestUri{
-				username:  "test-user",
-				namespace: "test-not-exists",
-			},
-			want: want{
-				statusCode: http.StatusNotFound,
-				response: map[string]string{
-					"details": fmt.Sprintf("rolebindings.rbac.authorization.k8s.io %q not found", "test-user"),
-					"error":   "Operation failed",
-				},
-			},
-		},
-	}
-	createTestNamespace(userNamespace)
-	createRoleBinding(userNamespace, "test-user")
-
-	for name, test := range cases {
-		t.Run(name, func(t *testing.T) {
-			request, _ := http.NewRequest("GET", fmt.Sprintf("/v1/namespaces/%s/users/%s",
-				test.requestUri.namespace, test.requestUri.username), nil)
-			writer := httptest.NewRecorder()
-			router.ServeHTTP(writer, request)
-			assert.Equal(t, test.want.statusCode, writer.Code)
-
-			var response map[string]string
-			if err := json.Unmarshal(writer.Body.Bytes(), &response); err != nil {
-				panic(err)
-			}
-			assert.Equal(t, test.want.response, response)
-
-		})
-	}
-}
+const (
+	userNamespace = testutils.TestNamespace + "-" + testutils.UsersKey
+	userName      = testutils.TestName + "-user"
+)
 
 func TestGetUsers(t *testing.T) {
-	usesNamespace := "test-namespace-users"
-	type requestUri struct {
+	testNamespaceName := userNamespace + "-get"
+	type requestURI struct {
 		namespace string
 	}
 
 	type want struct {
 		statusCode int
-		response   types.UsersOutput
+		response   map[string]interface{}
 	}
 
 	cases := map[string]struct {
-		requestUri requestUri
+		requestURI requestURI
 		want       want
 	}{
-		"ShouldSuccessGettingUsers": {
-			requestUri: requestUri{
-				namespace: usesNamespace,
+		"ShouldSucceedGettingUsers": {
+			requestURI: requestURI{
+				namespace: testNamespaceName,
 			},
 			want: want{
 				statusCode: http.StatusOK,
-				response:   types.UsersOutput{Count: 2, Users: []types.User{{Name: "test-user1", Role: "admin"}, {Name: "test-user2", Role: "admin"}}},
+				response: map[string]interface{}{
+					testutils.CountKey: 2,
+					testutils.UsersKey: []types.User{
+						{Name: userName + "-1", Role: testutils.AdminKey},
+						{Name: userName + "-2", Role: testutils.AdminKey},
+					},
+				},
 			},
 		},
 	}
-	createTestNamespace(usesNamespace)
-	createRoleBinding(usesNamespace, "test-user1")
-	createRoleBinding(usesNamespace, "test-user2")
+
+	setup()
+	mocks.CreateTestNamespace(fakeClient, testNamespaceName)
+	mocks.CreateTestRoleBinding(fakeClient, userName+"-1", testNamespaceName, testutils.AdminKey)
+	mocks.CreateTestRoleBinding(fakeClient, userName+"-2", testNamespaceName, testutils.AdminKey)
 
 	for name, test := range cases {
 		t.Run(name, func(t *testing.T) {
-			request, _ := http.NewRequest("GET", fmt.Sprintf("/v1/namespaces/%s/users/",
-				test.requestUri.namespace), nil)
+			baseURI := fmt.Sprintf("/v1/namespaces/%s/users", test.requestURI.namespace)
+			request, err := http.NewRequest(http.MethodGet, baseURI, nil)
+			assert.NoError(t, err)
+
 			writer := httptest.NewRecorder()
 			router.ServeHTTP(writer, request)
 			assert.Equal(t, test.want.statusCode, writer.Code)
 
-			var response types.UsersOutput
-			if err := json.Unmarshal(writer.Body.Bytes(), &response); err != nil {
-				panic(err)
-			}
-			assert.Equal(t, test.want.response, response)
+			var response map[string]interface{}
+			err = json.Unmarshal(writer.Body.Bytes(), &response)
+			assert.NoError(t, err)
 
+			wantResponseJSON, err := json.Marshal(test.want.response)
+			assert.NoError(t, err)
+			var wantResponseNormalized map[string]interface{}
+			err = json.Unmarshal(wantResponseJSON, &wantResponseNormalized)
+			assert.NoError(t, err)
+			assert.Equal(t, wantResponseNormalized, response)
 		})
 	}
 }
 
-func TestUpdateUser(t *testing.T) {
-	userNamespace := "test-update-user"
-	type requestUri struct {
+func TestGetUser(t *testing.T) {
+	testNamespaceName := userNamespace + "-get-one"
+
+	type requestURI struct {
 		namespace string
 		username  string
 	}
 
 	type want struct {
 		statusCode int
-		response   map[string]string
+		response   map[string]interface{}
 	}
 
 	cases := map[string]struct {
-		requestUri  requestUri
-		want        want
-		requsetData map[string]string
+		requestURI requestURI
+		want       want
 	}{
-		"ShouldSuccessUpdateUser": {
-			requestUri: requestUri{
-				username:  "test-user",
-				namespace: userNamespace,
+		"ShouldSucceedGettingUser": {
+			requestURI: requestURI{
+				username:  userName,
+				namespace: testNamespaceName,
 			},
 			want: want{
 				statusCode: http.StatusOK,
-				response: map[string]string{
-					"name": "test-user",
-					"role": "viewer",
+				response: map[string]interface{}{
+					testutils.NameKey: userName,
+					testutils.RoleKey: testutils.AdminKey,
 				},
 			},
-			requsetData: map[string]string{"role": "viewer", "name": "test-user"},
 		},
-		"ShouldNotFoundUser": {
-			requestUri: requestUri{
-				username:  "test-not-exists",
-				namespace: userNamespace,
+		"ShouldHandleNotFoundUser": {
+			requestURI: requestURI{
+				username:  userName + testutils.NonExistentSuffix,
+				namespace: testNamespaceName,
 			},
 			want: want{
 				statusCode: http.StatusNotFound,
-				response: map[string]string{
-					"details": fmt.Sprintf("rolebindings.rbac.authorization.k8s.io %q not found", "test-not-exists"),
-					"error":   "Operation failed",
+				response: map[string]interface{}{
+					testutils.DetailsKey: fmt.Sprintf("%s.%s %q not found", testutils.RoleBindingsKey, testutils.RoleBindingsGroupKey, userName+testutils.NonExistentSuffix),
+					testutils.ErrorKey:   testutils.OperationFailed,
 				},
 			},
-			requsetData: map[string]string{"role": "viewer"},
 		},
-		"NotExistsRole": {
-			requestUri: requestUri{
-				username:  "test-user",
-				namespace: userNamespace,
+		"ShouldHandleNotFoundNamespace": {
+			requestURI: requestURI{
+				username:  userName,
+				namespace: testNamespaceName + testutils.NonExistentSuffix,
 			},
 			want: want{
-				statusCode: http.StatusBadRequest,
-				response: map[string]string{
-					"details": "Key: 'PatchUserData.Role' Error:Field validation for 'Role' failed on the 'oneof' tag",
-					"error":   "Invalid request",
+				statusCode: http.StatusNotFound,
+				response: map[string]interface{}{
+					testutils.DetailsKey: fmt.Sprintf("%s.%s %q not found", testutils.RoleBindingsKey, testutils.RoleBindingsGroupKey, userName),
+					testutils.ErrorKey:   testutils.OperationFailed,
 				},
 			},
-			requsetData: map[string]string{"role": "baladi"},
 		},
 	}
-	createTestNamespace(userNamespace)
-	createRoleBinding(userNamespace, "test-user")
+
+	setup()
+	mocks.CreateTestNamespace(fakeClient, testNamespaceName)
+	mocks.CreateTestRoleBinding(fakeClient, userName, testNamespaceName, testutils.AdminKey)
 
 	for name, test := range cases {
 		t.Run(name, func(t *testing.T) {
-			payload, _ := json.Marshal(test.requsetData)
+			baseURI := fmt.Sprintf("/v1/namespaces/%s/users/%s", test.requestURI.namespace, test.requestURI.username)
+			request, err := http.NewRequest(http.MethodGet, baseURI, nil)
+			assert.NoError(t, err)
 
-			request, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/namespaces/%s/users/%s",
-				test.requestUri.namespace, test.requestUri.username), bytes.NewBuffer(payload))
-			request.Header.Set("Content-Type", "application/json")
 			writer := httptest.NewRecorder()
 			router.ServeHTTP(writer, request)
 			assert.Equal(t, test.want.statusCode, writer.Code)
 
-			var response map[string]string
-			if err := json.Unmarshal(writer.Body.Bytes(), &response); err != nil {
-				panic(err)
-			}
-			assert.Equal(t, test.want.response, response)
+			var response map[string]interface{}
+			err = json.Unmarshal(writer.Body.Bytes(), &response)
+			assert.NoError(t, err)
 
+			wantResponseJSON, err := json.Marshal(test.want.response)
+			assert.NoError(t, err)
+			var wantResponseNormalized map[string]interface{}
+			err = json.Unmarshal(wantResponseJSON, &wantResponseNormalized)
+			assert.NoError(t, err)
+			assert.Equal(t, wantResponseNormalized, response)
 		})
 	}
 }
 
 func TestCreateUser(t *testing.T) {
-	userNamespace := "create-user-namespace"
-	type requestUri struct {
+	testNamespaceName := userNamespace + "-create"
+
+	type requestURI struct {
 		namespace string
 	}
 
 	type want struct {
 		statusCode int
-		response   map[string]string
+		response   map[string]interface{}
 	}
 
 	cases := map[string]struct {
-		requestUri  requestUri
+		requestURI  requestURI
 		want        want
-		requsetData map[string]string
+		requestData interface{}
 	}{
-		"ShouldSuccessCreateUser": {
-			requestUri: requestUri{
-				namespace: userNamespace,
+		"ShouldSucceedCreateUser": {
+			requestURI: requestURI{
+				namespace: testNamespaceName,
 			},
 			want: want{
 				statusCode: http.StatusOK,
-				response: map[string]string{
-					"name": "test-user",
-					"role": "viewer",
+				response: map[string]interface{}{
+					testutils.NameKey: userName,
+					testutils.RoleKey: testutils.ViewerKey,
 				},
 			},
-			requsetData: map[string]string{"role": "viewer", "name": "test-user"},
+			requestData: mocks.PrepareUserType(userName, testutils.ViewerKey),
 		},
-		"AlreadyExists": {
-			requestUri: requestUri{
-				namespace: userNamespace,
+		"ShouldHandleAlreadyExists": {
+			requestURI: requestURI{
+				namespace: testNamespaceName,
 			},
 			want: want{
 				statusCode: http.StatusConflict,
-				response:   map[string]string{"details": fmt.Sprintf("rolebindings.rbac.authorization.k8s.io %q already exists", "exists-user"), "error": "Operation failed"},
+				response: map[string]interface{}{
+					testutils.DetailsKey: fmt.Sprintf("%s.%s %q already exists", testutils.RoleBindingsKey, testutils.RoleBindingsGroupKey, userName+"-1"),
+					testutils.ErrorKey:   testutils.OperationFailed,
+				},
 			},
-			requsetData: map[string]string{"role": "viewer", "name": "exists-user"},
+			requestData: mocks.PrepareUserType(userName+"-1", testutils.ViewerKey),
 		},
-		"NotExistsRole": {
-			requestUri: requestUri{
-				namespace: userNamespace,
+		"ShouldHandleNonExistentRole": {
+			requestURI: requestURI{
+				namespace: testNamespaceName,
 			},
 			want: want{
 				statusCode: http.StatusBadRequest,
-				response: map[string]string{
-					"details": "Key: 'User.Role' Error:Field validation for 'Role' failed on the 'oneof' tag",
-					"error":   "Invalid request",
+				response: map[string]interface{}{
+					testutils.DetailsKey: "Key: 'User.Role' Error:Field validation for 'Role' failed on the 'oneof' tag",
+					testutils.ErrorKey:   testutils.InvalidRequest,
 				},
 			},
-			requsetData: map[string]string{"role": "baladi", "name": "test-user1"},
+			requestData: mocks.PrepareUserType(userName, testutils.ViewerKey+testutils.NonExistentSuffix),
 		},
 	}
 
-	createTestNamespace(userNamespace)
-	createRoleBinding(userNamespace, "exists-user")
+	setup()
+	mocks.CreateTestNamespace(fakeClient, testNamespaceName)
+	mocks.CreateTestRoleBinding(fakeClient, userName+"-1", testNamespaceName, testutils.ViewerKey)
 
 	for name, test := range cases {
 		t.Run(name, func(t *testing.T) {
-			payload, _ := json.Marshal(test.requsetData)
+			payload, err := json.Marshal(test.requestData)
+			assert.NoError(t, err)
 
-			request, _ := http.NewRequest("POST", fmt.Sprintf("/v1/namespaces/%s/users/",
-				test.requestUri.namespace), bytes.NewBuffer(payload))
-			request.Header.Set("Content-Type", "application/json")
+			baseURI := fmt.Sprintf("/v1/namespaces/%s/users", test.requestURI.namespace)
+			request, err := http.NewRequest(http.MethodPost, baseURI, bytes.NewBuffer(payload))
+			assert.NoError(t, err)
+			request.Header.Set(testutils.ContentType, testutils.ApplicationJson)
+
 			writer := httptest.NewRecorder()
 			router.ServeHTTP(writer, request)
+
 			assert.Equal(t, test.want.statusCode, writer.Code)
 
-			var response map[string]string
-			if err := json.Unmarshal(writer.Body.Bytes(), &response); err != nil {
-				panic(err)
-			}
-			assert.Equal(t, test.want.response, response)
+			var response map[string]interface{}
+			err = json.Unmarshal(writer.Body.Bytes(), &response)
+			assert.NoError(t, err)
 
+			wantResponseJSON, err := json.Marshal(test.want.response)
+			assert.NoError(t, err)
+			var wantResponseNormalized map[string]interface{}
+			err = json.Unmarshal(wantResponseJSON, &wantResponseNormalized)
+			assert.NoError(t, err)
+			assert.Equal(t, wantResponseNormalized, response)
 		})
 	}
 }
 
-func TestDeleteUser(t *testing.T) {
-	userNamespace := "delete-user-namespace"
-	type requestUri struct {
+func TestUpdateUser(t *testing.T) {
+	testNamespaceName := userNamespace + "-update"
+
+	type requestURI struct {
 		namespace string
 		username  string
 	}
 
 	type want struct {
 		statusCode int
-		response   map[string]string
+		response   map[string]interface{}
 	}
 
 	cases := map[string]struct {
-		requestUri requestUri
-		want       want
+		requestURI  requestURI
+		want        want
+		requestData interface{}
 	}{
-		"ShouldDeleteGettingUser": {
-			requestUri: requestUri{
+		"ShouldSucceedUpdateUser": {
+			requestURI: requestURI{
 				username:  "test-user",
-				namespace: userNamespace,
+				namespace: testNamespaceName,
 			},
 			want: want{
 				statusCode: http.StatusOK,
-				response: map[string]string{
-					"message": fmt.Sprintf("deleted roleBinding %q successfully", "test-user"),
+				response: map[string]interface{}{
+					testutils.NameKey: userName,
+					testutils.RoleKey: testutils.ViewerKey,
 				},
 			},
+			requestData: mocks.PrepareUserType(userName, testutils.ViewerKey),
 		},
-		"ShouldNotFoundUser": {
-			requestUri: requestUri{
-				username:  "test-not-exists",
-				namespace: userNamespace,
+		"ShouldHandleNotFoundUser": {
+			requestURI: requestURI{
+				username:  userName + testutils.NonExistentSuffix,
+				namespace: testNamespaceName,
 			},
 			want: want{
 				statusCode: http.StatusNotFound,
-				response: map[string]string{
-					"details": fmt.Sprintf("rolebindings.rbac.authorization.k8s.io %q not found", "test-not-exists"),
-					"error":   "Operation failed",
+				response: map[string]interface{}{
+					testutils.DetailsKey: fmt.Sprintf("%s.%s %q not found", testutils.RoleBindingsKey, testutils.RoleBindingsGroupKey, userName+testutils.NonExistentSuffix),
+					testutils.ErrorKey:   testutils.OperationFailed,
+				},
+			},
+			requestData: mocks.PrepareUpdateUserDataType(testutils.ViewerKey),
+		},
+		"ShouldHandleNotExistentRole": {
+			requestURI: requestURI{
+				username:  userName,
+				namespace: testNamespaceName,
+			},
+			want: want{
+				statusCode: http.StatusBadRequest,
+				response: map[string]interface{}{
+					testutils.DetailsKey: "Key: 'UpdateUserData.Role' Error:Field validation for 'Role' failed on the 'oneof' tag",
+					testutils.ErrorKey:   testutils.InvalidRequest,
+				},
+			},
+			requestData: mocks.PrepareUpdateUserDataType(testutils.ViewerKey + testutils.NonExistentSuffix),
+		},
+	}
+
+	setup()
+	mocks.CreateTestNamespace(fakeClient, testNamespaceName)
+	mocks.CreateTestRoleBinding(fakeClient, userName, testNamespaceName, testutils.AdminKey)
+
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			payload, err := json.Marshal(test.requestData)
+			assert.NoError(t, err)
+
+			baseURI := fmt.Sprintf("/v1/namespaces/%s/users/%s", test.requestURI.namespace, test.requestURI.username)
+			request, err := http.NewRequest(http.MethodPut, baseURI, bytes.NewBuffer(payload))
+			assert.NoError(t, err)
+			request.Header.Set(testutils.ContentType, testutils.ApplicationJson)
+
+			writer := httptest.NewRecorder()
+			router.ServeHTTP(writer, request)
+
+			assert.Equal(t, test.want.statusCode, writer.Code)
+
+			var response map[string]interface{}
+			err = json.Unmarshal(writer.Body.Bytes(), &response)
+			assert.NoError(t, err)
+
+			wantResponseJSON, err := json.Marshal(test.want.response)
+			assert.NoError(t, err)
+			var wantResponseNormalized map[string]interface{}
+			err = json.Unmarshal(wantResponseJSON, &wantResponseNormalized)
+			assert.NoError(t, err)
+			assert.Equal(t, wantResponseNormalized, response)
+		})
+	}
+}
+
+func TestDeleteUser(t *testing.T) {
+	testNamespaceName := userNamespace + "-delete"
+
+	type requestURI struct {
+		namespace string
+		username  string
+	}
+
+	type want struct {
+		statusCode int
+		response   map[string]interface{}
+	}
+
+	cases := map[string]struct {
+		requestURI requestURI
+		want       want
+	}{
+		"ShouldSucceedDeletingUser": {
+			requestURI: requestURI{
+				username:  userName,
+				namespace: testNamespaceName,
+			},
+			want: want{
+				statusCode: http.StatusOK,
+				response: map[string]interface{}{
+					testutils.MessageKey: fmt.Sprintf("Deleted roleBinding %q in namespace %q successfully", userName, testNamespaceName),
 				},
 			},
 		},
-		"ShouldNotFoundNamespace": {
-			requestUri: requestUri{
-				username:  "test-user",
-				namespace: "test-not-exists",
+		"ShouldHandleNotFoundUser": {
+			requestURI: requestURI{
+				username:  userName + testutils.NonExistentSuffix,
+				namespace: testNamespaceName,
 			},
 			want: want{
 				statusCode: http.StatusNotFound,
-				response: map[string]string{
-					"details": fmt.Sprintf("rolebindings.rbac.authorization.k8s.io %q not found", "test-user"),
-					"error":   "Operation failed",
+				response: map[string]interface{}{
+					testutils.DetailsKey: fmt.Sprintf("%s.%s %q not found", testutils.RoleBindingsKey, testutils.RoleBindingsGroupKey, userName+testutils.NonExistentSuffix),
+					testutils.ErrorKey:   testutils.OperationFailed,
+				},
+			},
+		},
+		"ShouldHandleNotFoundNamespace": {
+			requestURI: requestURI{
+				username:  userName,
+				namespace: testNamespaceName + testutils.NonExistentSuffix,
+			},
+			want: want{
+				statusCode: http.StatusNotFound,
+				response: map[string]interface{}{
+					testutils.DetailsKey: fmt.Sprintf("%s.%s %q not found", testutils.RoleBindingsKey, testutils.RoleBindingsGroupKey, userName),
+					testutils.ErrorKey:   testutils.OperationFailed,
 				},
 			},
 		},
 	}
-	createTestNamespace(userNamespace)
-	createRoleBinding(userNamespace, "test-user")
+
+	setup()
+	mocks.CreateTestNamespace(fakeClient, testNamespaceName)
+	mocks.CreateTestRoleBinding(fakeClient, userName, testNamespaceName, testutils.AdminKey)
 
 	for name, test := range cases {
 		t.Run(name, func(t *testing.T) {
-			request, _ := http.NewRequest("DELETE", fmt.Sprintf("/v1/namespaces/%s/users/%s",
-				test.requestUri.namespace, test.requestUri.username), nil)
+			baseURI := fmt.Sprintf("/v1/namespaces/%s/users/%s", test.requestURI.namespace, test.requestURI.username)
+			request, err := http.NewRequest(http.MethodDelete, baseURI, nil)
+			assert.NoError(t, err)
+
 			writer := httptest.NewRecorder()
 			router.ServeHTTP(writer, request)
+
 			assert.Equal(t, test.want.statusCode, writer.Code)
 
-			var response map[string]string
-			if err := json.Unmarshal(writer.Body.Bytes(), &response); err != nil {
-				panic(err)
-			}
-			assert.Equal(t, test.want.response, response)
+			var response map[string]interface{}
+			err = json.Unmarshal(writer.Body.Bytes(), &response)
+			assert.NoError(t, err)
 
+			wantResponseJSON, err := json.Marshal(test.want.response)
+			assert.NoError(t, err)
+			var wantResponseNormalized map[string]interface{}
+			err = json.Unmarshal(wantResponseJSON, &wantResponseNormalized)
+			assert.NoError(t, err)
+			assert.Equal(t, wantResponseNormalized, response)
 		})
 	}
 }

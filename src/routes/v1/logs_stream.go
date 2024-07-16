@@ -6,6 +6,7 @@ import (
 	websocketpkg "github.com/dana-team/platform-backend/src/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 	"io"
 	"k8s.io/client-go/kubernetes"
 	"net/http"
@@ -23,12 +24,13 @@ func GetPodLogs() gin.HandlerFunc {
 	return createLogHandler(streamPodLogs, podNameQueryParam, "Pod")
 }
 
-// GetCappLogs returns a handler function that fetches logs for a specified Knative service.
+// GetCappLogs returns a handler function that fetches logs for a specified Capp.
 func GetCappLogs() gin.HandlerFunc {
 	return createLogHandler(streamCappLogs, cappNameParam, "Capp")
 }
 
-func createLogHandler(streamFunc func(*gin.Context) (io.ReadCloser, error), paramKey, logPrefix string) gin.HandlerFunc {
+// createLogHandler creates a gin.HandlerFunc for streaming logs using the provided stream function.
+func createLogHandler(streamFunc func(*gin.Context, *zap.Logger) (io.ReadCloser, error), paramKey, logPrefix string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !websocket.IsWebSocketUpgrade(c.Request) {
 			c.AbortWithStatus(http.StatusBadRequest)
@@ -38,13 +40,20 @@ func createLogHandler(streamFunc func(*gin.Context) (io.ReadCloser, error), para
 		websocketClient := websocketpkg.NewWebSocket(nil)
 		conn, err := websocketClient.Register(c)
 		if err != nil {
-			websocketpkg.SendErrorMessage(conn, "Error registering WebSocket")
+			websocketpkg.SendErrorMessage(conn, "error registering WebSocket")
 			return
 		}
 		defer conn.Close()
 
-		logStream, err := streamFunc(c)
+		logger, err := getLogger(c)
 		if err != nil {
+			websocketpkg.SendErrorMessage(conn, fmt.Sprintf("error getting logger %v", err.Error()))
+			return
+		}
+
+		logStream, err := streamFunc(c, logger)
+		if err != nil {
+			logger.Debug(fmt.Sprintf("Error streaming %v logs: %v", logPrefix, err.Error()))
 			websocketpkg.SendErrorMessage(conn, fmt.Sprintf("Error streaming %v logs: %v", logPrefix, err.Error()))
 			return
 		}
@@ -58,7 +67,8 @@ func createLogHandler(streamFunc func(*gin.Context) (io.ReadCloser, error), para
 	}
 }
 
-func streamPodLogs(c *gin.Context) (io.ReadCloser, error) {
+// streamPodLogs streams logs for a specific pod and container.
+func streamPodLogs(c *gin.Context, logger *zap.Logger) (io.ReadCloser, error) {
 	client, err := getKubeClient(c)
 	if err != nil {
 		return nil, err
@@ -68,10 +78,11 @@ func streamPodLogs(c *gin.Context) (io.ReadCloser, error) {
 	podName := c.Param(podNameQueryParam)
 	containerName := c.Query(containerQueryParam)
 
-	return controllers.FetchPodLogs(c.Request.Context(), client, namespace, podName, containerName)
+	return controllers.FetchPodLogs(c.Request.Context(), client, namespace, podName, containerName, logger)
 }
 
-func streamCappLogs(c *gin.Context) (io.ReadCloser, error) {
+// streamCappLogs streams logs for a specific Capp.
+func streamCappLogs(c *gin.Context, logger *zap.Logger) (io.ReadCloser, error) {
 	client, err := getKubeClient(c)
 	if err != nil {
 		return nil, err
@@ -82,13 +93,23 @@ func streamCappLogs(c *gin.Context) (io.ReadCloser, error) {
 	containerName := c.DefaultQuery(containerQueryParam, cappName)
 	podName := c.Query(podNameQueryParam)
 
-	return controllers.FetchCappLogs(c.Request.Context(), client, namespace, cappName, containerName, podName)
+	return controllers.FetchCappLogs(c.Request.Context(), client, namespace, cappName, containerName, podName, logger)
 }
 
+// getKubeClient retrieves the Kubernetes client from the gin.Context.
 func getKubeClient(c *gin.Context) (kubernetes.Interface, error) {
 	kube, exists := c.Get("kubeClient")
 	if !exists {
 		return nil, fmt.Errorf("kube client not found")
 	}
 	return kube.(kubernetes.Interface), nil
+}
+
+// getLogger retrieves the logger from the gin.Context.
+func getLogger(c *gin.Context) (*zap.Logger, error) {
+	logger, exists := c.Get("logger")
+	if !exists {
+		return nil, fmt.Errorf("logger not found in context")
+	}
+	return logger.(*zap.Logger), nil
 }

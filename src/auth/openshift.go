@@ -5,15 +5,14 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"os"
-
 	"github.com/dana-team/platform-backend/src/utils"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"golang.org/x/oauth2"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
 )
 
 const (

@@ -1,14 +1,17 @@
 package main
 
 import (
-	"log"
-
+	cappv1alpha1 "github.com/dana-team/container-app-operator/api/v1alpha1"
 	"github.com/dana-team/platform-backend/src/auth"
 	"github.com/dana-team/platform-backend/src/middleware"
-	v1 "github.com/dana-team/platform-backend/src/routes/v1"
+	"github.com/dana-team/platform-backend/src/routes/v1"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"log"
 )
 
 func main() {
@@ -21,7 +24,7 @@ func main() {
 
 	tokenProvider := auth.DefaultTokenProvider{}
 	engine := initializeRouter(logger, tokenProvider)
-	if err := engine.Run("0.0.0.0:8080"); err != nil {
+	if err := engine.Run(); err != nil {
 		panic(err.Error())
 	}
 }
@@ -46,7 +49,16 @@ func syncLogger(logger *zap.Logger) {
 func initializeRouter(logger *zap.Logger, tokenProvider auth.TokenProvider) *gin.Engine {
 	engine := gin.Default()
 	engine.Use(middleware.LoggerMiddleware(logger))
-	v1.SetupRoutes(engine, tokenProvider)
+	v1.SetupRoutes(engine, tokenProvider, newScheme())
 
 	return engine
+}
+
+// newScheme adds the relevant APIs to the scheme for the K8S client.
+func newScheme() *runtime.Scheme {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(cappv1alpha1.AddToScheme(scheme))
+
+	return scheme
 }

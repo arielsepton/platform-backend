@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"k8s.io/apimachinery/pkg/runtime"
 	"net/http"
 
 	"github.com/dana-team/platform-backend/src/auth"
@@ -8,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(engine *gin.Engine, tokenProvider auth.TokenProvider) {
+func SetupRoutes(engine *gin.Engine, tokenProvider auth.TokenProvider, scheme *runtime.Scheme) {
 	v1 := engine.Group("/v1")
 
 	engine.GET("/ping", func(c *gin.Context) {
@@ -19,11 +20,11 @@ func SetupRoutes(engine *gin.Engine, tokenProvider auth.TokenProvider) {
 
 	authGroup := v1.Group("/login")
 	{
-		authGroup.POST("/", Login(tokenProvider))
+		authGroup.POST("", Login(tokenProvider))
 	}
 
 	logsGroup := v1.Group("/logs")
-	logsGroup.Use(middleware.TokenAuthMiddleware(tokenProvider))
+	logsGroup.Use(middleware.TokenAuthMiddleware(tokenProvider, scheme))
 	{
 		logsGroup.GET("/pod/:namespace/:podName", GetPodLogs()) // containerName
 		logsGroup.GET("/capp/:namespace/:name", GetCappLogs())
@@ -31,53 +32,53 @@ func SetupRoutes(engine *gin.Engine, tokenProvider auth.TokenProvider) {
 	}
 
 	namespacesGroup := v1.Group("/namespaces")
-	namespacesGroup.Use(middleware.TokenAuthMiddleware(tokenProvider))
+	namespacesGroup.Use(middleware.TokenAuthMiddleware(tokenProvider, scheme))
 	{
-		namespacesGroup.GET("/", ListNamespaces())
+		namespacesGroup.GET("", GetNamespaces())
 		namespacesGroup.GET("/:namespaceName", GetNamespace())
-		namespacesGroup.POST("/", CreateNamespace())
+		namespacesGroup.POST("", CreateNamespace())
 		namespacesGroup.DELETE("/:namespaceName", DeleteNamespace())
 	}
 
 	secretsGroup := namespacesGroup.Group("/:namespaceName/secrets")
-	secretsGroup.Use(middleware.TokenAuthMiddleware(tokenProvider))
+	secretsGroup.Use(middleware.TokenAuthMiddleware(tokenProvider, scheme))
 	{
-		secretsGroup.POST("/", CreateSecret())
-		secretsGroup.GET("/", GetSecrets())
+		secretsGroup.POST("", CreateSecret())
+		secretsGroup.GET("", GetSecrets())
 		secretsGroup.GET("/:secretName", GetSecret())
 		secretsGroup.PUT("/:secretName", UpdateSecret())
 		secretsGroup.DELETE("/:secretName", DeleteSecret())
 	}
 
 	cappGroup := namespacesGroup.Group("/:namespaceName/capps")
-	cappGroup.Use(middleware.TokenAuthMiddleware(tokenProvider))
+	cappGroup.Use(middleware.TokenAuthMiddleware(tokenProvider, scheme))
 	{
-		cappGroup.POST("/", CreateCapp())
-		cappGroup.GET("/", GetCapps())
+		cappGroup.POST("", CreateCapp())
+		cappGroup.GET("", GetCapps())
 		cappGroup.GET("/:cappName", GetCapp())
 		cappGroup.PUT("/:cappName", UpdateCapp())
 		cappGroup.DELETE("/:cappName", DeleteCapp())
 	}
 
 	cappRevisionGroup := namespacesGroup.Group("/:namespaceName/capprevisions")
-	cappRevisionGroup.Use(middleware.TokenAuthMiddleware(tokenProvider))
+	cappRevisionGroup.Use(middleware.TokenAuthMiddleware(tokenProvider, scheme))
 	{
-		cappRevisionGroup.GET("/", GetCappRevisions())
+		cappRevisionGroup.GET("", GetCappRevisions())
 		cappRevisionGroup.GET("/:cappRevisionName", GetCappRevision())
 	}
 
 	usersGroup := namespacesGroup.Group("/:namespaceName/users")
-	usersGroup.Use(middleware.TokenAuthMiddleware(tokenProvider))
+	usersGroup.Use(middleware.TokenAuthMiddleware(tokenProvider, scheme))
 	{
-		usersGroup.POST("/", CreateUser())
-		usersGroup.GET("/", GetUsers())
+		usersGroup.POST("", CreateUser())
+		usersGroup.GET("", GetUsers())
 		usersGroup.GET("/:userName", GetUser())
 		usersGroup.PUT("/:userName", UpdateUser())
 		usersGroup.DELETE("/:userName", DeleteUser())
 	}
 
 	configMapGroup := namespacesGroup.Group("/:namespaceName/configmaps")
-	configMapGroup.Use(middleware.TokenAuthMiddleware(tokenProvider))
+	configMapGroup.Use(middleware.TokenAuthMiddleware(tokenProvider, scheme))
 	{
 		configMapGroup.GET("/:configMapName", GetConfigMap())
 	}

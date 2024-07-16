@@ -3,13 +3,12 @@ package auth
 import (
 	"context"
 	"errors"
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
-
-	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 func TestObtainOpenshiftToken(t *testing.T) {

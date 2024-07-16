@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/dana-team/platform-backend/src/types"
+	"github.com/dana-team/platform-backend/src/utils"
 	"go.uber.org/zap"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,7 +55,7 @@ func NewUserController(client kubernetes.Interface, context context.Context, log
 func (u *userController) GetUsers(namespace string) (types.UsersOutput, error) {
 	u.logger.Debug(fmt.Sprintf("Trying to get all rolebindings in %q namespace", namespace))
 
-	roleBindings, err := u.client.RbacV1().RoleBindings(namespace).List(u.ctx, metav1.ListOptions{})
+	roleBindings, err := u.client.RbacV1().RoleBindings(namespace).List(u.ctx, metav1.ListOptions{LabelSelector: utils.ManagedLabelSelector})
 	userOutputs := types.UsersOutput{}
 	if err != nil {
 		u.logger.Error(fmt.Sprintf("Could not get rolebindings with error: %v", err.Error()))
@@ -137,7 +138,7 @@ func (u *userController) UpdateUser(user types.UserInput) (types.User, error) {
 }
 
 func (u *userController) DeleteUser(userIdentifier types.UserIdentifier) (types.DeleteUserResponse, error) {
-	u.logger.Debug(fmt.Sprintf("Trying to delete rolebinding %q in %q namespace", userIdentifier.UserName, userIdentifier.NamespaceName))
+	u.logger.Debug(fmt.Sprintf("Trying to delete rolebinding %q in namespace %q", userIdentifier.UserName, userIdentifier.NamespaceName))
 
 	if err := u.client.RbacV1().RoleBindings(userIdentifier.NamespaceName).Delete(u.ctx, userIdentifier.UserName, metav1.DeleteOptions{}); err != nil {
 		u.logger.Error(fmt.Sprintf("Could note delete rolebinding %q with error: %v",
@@ -146,14 +147,15 @@ func (u *userController) DeleteUser(userIdentifier types.UserIdentifier) (types.
 			userIdentifier.UserName, err.Error())}, err
 	}
 
-	u.logger.Debug(fmt.Sprintf("deleted roleBinding %q successfully", userIdentifier.UserName))
-	return types.DeleteUserResponse{Message: fmt.Sprintf("deleted roleBinding %q successfully", userIdentifier.UserName)}, nil
+	u.logger.Debug(fmt.Sprintf("Deleted roleBinding %q in namespace %q successfully", userIdentifier.UserName, userIdentifier.NamespaceName))
+	return types.DeleteUserResponse{Message: fmt.Sprintf("Deleted roleBinding %q in namespace %q successfully", userIdentifier.UserName, userIdentifier.NamespaceName)}, nil
 }
 
 func prepareRoleBinding(roleBindingName string, role string) *rbacv1.RoleBinding {
 	return &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: roleBindingName,
+			Name:   roleBindingName,
+			Labels: utils.AddManagedLabel(map[string]string{}),
 		},
 		Subjects: []rbacv1.Subject{
 			{
