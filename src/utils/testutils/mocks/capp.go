@@ -58,7 +58,7 @@ func PrepareCappSpec() cappv1alpha1.CappSpec {
 						Containers: []corev1.Container{
 							{
 								Image: testutils.CappImage,
-								Name:  testutils.ContainerName,
+								Name:  testutils.CappContainerName,
 							},
 						},
 					},
@@ -78,7 +78,7 @@ func PrepareCappSpecWithHostname() cappv1alpha1.CappSpec {
 						Containers: []corev1.Container{
 							{
 								Image: testutils.CappImage,
-								Name:  testutils.ContainerName,
+								Name:  testutils.CappContainerName,
 							},
 						},
 					},

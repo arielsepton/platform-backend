@@ -80,9 +80,15 @@ const (
 	ApplicationJson = "application/json"
 )
 const (
-	CappName      = TestName + "-capp"
-	CappsKey      = "capps"
-	CappNamespace = TestNamespace + "-" + CappsKey
-	CappImage     = "ghcr.io/dana-team/capp-gin-app:v0.2.0"
-	ContainerName = "capp-container"
+	CappName          = TestName + "-capp"
+	CappsKey          = "capps"
+	CappNamespace     = TestNamespace + "-" + CappsKey
+	CappImage         = "ghcr.io/dana-team/capp-gin-app:v0.2.0"
+	CappContainerName = "capp-container"
+	CappResourceKey   = "rcs.dana.io/parent-capp"
+)
+
+const (
+	ContainerName = "test-container"
+	Image         = "nginx"
 )

@@ -17,6 +17,7 @@ var (
 	router     *gin.Engine
 	fakeClient *fake.Clientset
 	dynClient  runtimeClient.WithWatch
+	token      string
 )
 
 func TestMain(m *testing.M) {
@@ -36,6 +37,7 @@ func setupRouter(logger *zap.Logger) *gin.Engine {
 		c.Set("logger", logger)
 		c.Set("kubeClient", fakeClient)
 		c.Set("dynClient", dynClient)
+		c.Set("token", token)
 		c.Next()
 	})
 	v1 := engine.Group("/v1")
@@ -81,6 +83,12 @@ func setupRouter(logger *zap.Logger) *gin.Engine {
 				usersGroup.GET("/:userName", GetUser())
 				usersGroup.PUT("/:userName", UpdateUser())
 				usersGroup.DELETE("/:userName", DeleteUser())
+			}
+
+			logsGroup := v1.Group("/logs")
+			{
+				logsGroup.GET("/pod/:namespace/:podName", GetPodLogs())
+				logsGroup.GET("/capp/:namespace/:name", GetCappLogs())
 			}
 
 			configMapGroup := namespacesGroup.Group("/:namespaceName/configmaps")
