@@ -12,10 +12,8 @@ import (
 func SetupRoutes(engine *gin.Engine, tokenProvider auth.TokenProvider, scheme *runtime.Scheme) {
 	v1 := engine.Group("/v1")
 
-	engine.GET("/ping", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "pong",
-		})
+	engine.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
 
 	authGroup := v1.Group("/login")
@@ -57,6 +55,7 @@ func SetupRoutes(engine *gin.Engine, tokenProvider auth.TokenProvider, scheme *r
 		cappGroup.GET("", GetCapps())
 		cappGroup.GET("/:cappName", GetCapp())
 		cappGroup.PUT("/:cappName", UpdateCapp())
+		cappGroup.PUT("/:cappName/state", EditCappState())
 		cappGroup.DELETE("/:cappName", DeleteCapp())
 	}
 
