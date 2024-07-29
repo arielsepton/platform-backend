@@ -10,6 +10,9 @@ var ManagedLabel = cappAPIGroup + "/managed"
 var ManagedLabelValue = "true"
 var ManagedLabelSelector = fmt.Sprintf("%s=%s", ManagedLabel, ManagedLabelValue)
 
+var parentCappLabel = cappAPIGroup + "/parent-capp"
+var ParentCappLabelSelector = parentCappLabel + "=%s"
+
 // AddManagedLabel adds the managed label to the given labels map.
 func AddManagedLabel(labels map[string]string) map[string]string {
 	labels[ManagedLabel] = "true"
