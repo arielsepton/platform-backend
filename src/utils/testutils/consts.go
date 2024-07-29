@@ -84,6 +84,7 @@ const (
 	ContentType     = "Content-Type"
 	ApplicationJson = "application/json"
 )
+
 const (
 	CappName            = TestName + "-capp"
 	CappsKey            = "capps"
